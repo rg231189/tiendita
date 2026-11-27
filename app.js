@@ -461,6 +461,16 @@ $('cfLink').onclick = async () => {
   try { await navigator.clipboard.writeText(link); toast('Enlace copiado. Mándalo por WhatsApp a quien vaya a usar la app.'); }
   catch (e) { ask('Enlace de configuración', `<p>Copia este enlace:</p><input value="${esc(link)}" readonly onclick="this.select()">`, () => {}, 'Listo'); }
 };
+$('cfApply').onclick = async () => {
+  const m = $('cfPaste').value.trim().match(/#cfg=([A-Za-z0-9+/=]+)/);
+  if (!m) return toast('Ese enlace no trae configuración');
+  try {
+    const o = JSON.parse(decodeURIComponent(escape(atob(m[1]))));
+    if (!o.url) throw new Error();
+    $('cfUrl').value = o.url; $('cfTok').value = o.token || ''; $('cfPaste').value = '';
+    $('cfSave').click();
+  } catch (e) { toast('Enlace de configuración inválido'); }
+};
 $('cfWho').addEventListener('change', e => {
   cfg.who = e.target.value;
   const base = WHO[cfg.who]; const k = Math.floor(base / 10000) * 10000;
