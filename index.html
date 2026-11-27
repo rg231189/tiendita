@@ -118,6 +118,17 @@ label{display:block;font-size:14px;color:var(--mut);margin-bottom:4px}
 .toast.on{opacity:1}
 @media(prefers-reduced-motion:reduce){.toast{transition:none}}
 .banner{background:color-mix(in srgb,var(--tag) 10%,var(--bg));border:1px solid color-mix(in srgb,var(--tag) 35%,transparent);border-radius:12px;padding:10px 14px;font-size:14px;margin-bottom:12px}
+.tbl{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.tbl th,.tbl td{padding:8px 6px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+.tbl th:first-child,.tbl td:first-child{text-align:left;white-space:normal}
+.tbl th{font-size:13px;color:var(--mut);font-weight:600}
+.tbl tr.tot td{font-weight:800;border-top:2px solid var(--ink)}
+.cuadre{margin-top:12px;border-radius:12px;padding:12px 14px;background:var(--bg);border:1.5px solid var(--line)}
+.cuadre .big{font-size:26px;font-weight:800;font-variant-numeric:tabular-nums}
+.cuadre.ok{border-color:#5aa500}.cuadre.bad{border-color:var(--warn)}
+a.btn{display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
+.scrollx{overflow-x:auto}
+@media(max-width:799px){nav.tabs button{font-size:12.5px;padding:6px 4px}}
 #print{display:none}
 @media print{
   body>*:not(#print){display:none!important}
@@ -172,6 +183,42 @@ label{display:block;font-size:14px;color:var(--mut);margin-bottom:4px}
         <div class="figs" id="hoyFigs"></div>
         <ul class="list" id="hoyList"></ul>
         <div class="actions"><button class="btn" type="button" id="csvHoy">Exportar CSV de hoy</button></div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- CORTE -->
+  <section id="v-corte" data-view="corte" hidden>
+    <h1>Corte de caja</h1>
+    <div class="row" style="max-width:640px">
+      <div><label for="ctFecha">Fecha</label><input id="ctFecha" type="date"></div>
+      <div><label for="ctVend">Vendedora</label><select id="ctVend"></select></div>
+    </div>
+    <div class="cols" style="margin-top:14px">
+      <div class="card">
+        <h2>En este teléfono <small>funciona sin internet</small></h2>
+        <div class="figs" id="ctFigs"></div>
+        <table class="tbl" id="ctPago"></table>
+        <div class="row" style="margin-top:12px">
+          <div><label for="ctFondo">Fondo inicial en caja ($)</label><input id="ctFondo" type="number" inputmode="decimal" placeholder="0"></div>
+          <div><label for="ctConteo">Efectivo contado ($)</label><input id="ctConteo" type="number" inputmode="decimal" placeholder="Cuenta el efectivo"></div>
+        </div>
+        <div class="cuadre" id="ctCuadre"></div>
+        <p class="warnline" id="ctPend"></p>
+        <div class="actions">
+          <a class="btn main" id="ctWa" href="#" target="_blank" rel="noopener">Enviar corte por WhatsApp</a>
+          <button class="btn" type="button" id="ctCopy">Copiar texto</button>
+        </div>
+        <h2 style="margin-top:18px">Tickets</h2>
+        <ul class="list" id="ctList"></ul>
+      </div>
+      <div class="card">
+        <h2>Según la hoja de Google <small>necesita internet</small></h2>
+        <p class="mut" style="margin-top:0">Muestra lo que ya llegó a la hoja ese día, de todos los teléfonos. Sirve para que Edith, Vicente o Raúl cuadren el corte que les manda la vendedora.</p>
+        <div class="actions" style="margin-top:0"><button class="btn main" type="button" id="hjBtn">Consultar la hoja</button></div>
+        <p class="hint" id="hjMsg"></p>
+        <div id="hjOut"></div>
       </div>
     </div>
   </section>

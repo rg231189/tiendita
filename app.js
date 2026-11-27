@@ -47,7 +47,9 @@ function rebuildIndex() {
   for (const p of cat.productos) index.set(p[0], {sku: p[0], desc: p[1], clase: p[2], tipo: p[3], talla: p[4], color: p[5], consig: p[6], precio: p[7], exist: p[8]});
   for (const a of altas) if (!index.has(a.SKU)) index.set(a.SKU, {sku: a.SKU, desc: a['Descripción'], clase: a.Clase, tipo: a.Tipo, talla: a['Talla / Unidad'], color: a.Color, consig: a.Consignatario, precio: a['Precio venta'], exist: a['Piezas compradas'], local: true});
   // descuenta ventas que aún no llegan a la hoja
-  for (const v of ventas) if (!v.sent) { const p = index.get(v.SKU); if (p) p.exist -= v.Piezas; }
+  // descuenta ventas que el catálogo descargado todavía no incluye
+  const catT = cat.fetchedAt || 0;
+  for (const v of ventas) if (!v.sent || (v.sentAt || 0) > catT) { const p = index.get(v.SKU); if (p) p.exist -= v.Piezas; }
   for (const k of index.keys()) { const m = /^\d+/.exec(k); if (m) folios.add(+m[0]); }
 }
 const autoDesc = (t, c) => [t, c].filter(Boolean).join(' ');
@@ -61,7 +63,7 @@ function search(q) {
 }
 
 /* ---------------- navegación ---------------- */
-const VIEWS = [['vender', 'Vender'], ['alta', 'Alta'], ['etiquetas', 'Etiquetas'], ['envios', 'Envíos'], ['ajustes', 'Ajustes']];
+const VIEWS = [['vender', 'Vender'], ['corte', 'Corte'], ['alta', 'Alta'], ['etiquetas', 'Etiquetas'], ['envios', 'Envíos'], ['ajustes', 'Ajustes']];
 let view = (location.hash || '').slice(1);
 if (!VIEWS.some(v => v[0] === view)) view = 'vender';
 function drawNav() {
@@ -79,6 +81,7 @@ window.addEventListener('hashchange', () => { const v = location.hash.slice(1); 
 
 function drawView() {
   if (view === 'vender') drawVenta();
+  if (view === 'corte') drawCorte();
   if (view === 'alta') drawAlta();
   if (view === 'etiquetas') drawLabels();
   if (view === 'envios') drawEnvios();
@@ -158,7 +161,8 @@ function cobrar() {
   const vend = $('vend').value; cfg.vend = vend; put('cfg', cfg);
   const rows = cart.map(l => ({ID: uid(), Ticket: ticket, Fecha: t, SKU: l.sku, Piezas: l.pz, 'Precio cobrado': l.precio, Descuento: l.dsc || '', 'Devolución': '',
     Vendedora: vend, 'Forma de pago': pago, Notas: l.unk ? 'No estaba en catálogo: ' + l.d : (l.precio !== l.lista ? 'Precio lista ' + l.lista : ''), Dispositivo: cfg.device || ''}));
-  rows.forEach(r => { ventas.push({...r, sent: false}); out.push({kind: 'ventas', row: r}); });
+  const hora = new Date().toTimeString().slice(0, 5);
+  rows.forEach(r => { ventas.push({...r, sent: false, hora}); out.push({kind: 'ventas', row: r}); });
   const tot = cart.reduce((a, l) => a + lineTotal(l), 0);
   cart = []; $('paid').value = '';
   put('ventas', ventas); put('out', out); saveCart(); rebuildIndex();
@@ -207,6 +211,123 @@ $('csvHoy').onclick = () => {
   if (!hoy.length) return toast('No hay ventas hoy');
   saveCsv(`ventas_${(cfg.device || 'app').replace(/\s+/g, '_')}_${t}.csv`, VENTA_COLS, hoy);
 };
+
+
+/* =========================================================== CORTE DE CAJA */
+let fondos = get('fondos', {});       // {fecha: {fondo, conteo}}
+let hj = null;                        // última consulta a la hoja
+const fmtF = f => { const [y, m, d] = f.split('-'); return `${d}/${m}/${y}`; };
+const tnum = t => String(t || '').split('-').slice(-1)[0];
+function ticketsDe(rows) {
+  const m = new Map();
+  for (const v of rows) {
+    const k = v.Ticket || v.ID;
+    const x = m.get(k) || {ticket: k, hora: v.hora || '', vend: v.Vendedora || '', pago: v['Forma de pago'] || 'Sin forma', pz: 0, total: 0, sent: true, skus: []};
+    x.pz += v.Piezas; x.total += v.Piezas * (+v['Precio cobrado'] || 0) - (+v.Descuento || 0) - (+v['Devolución'] || 0);
+    x.sent = x.sent && v.sent; x.skus.push(v.SKU); m.set(k, x);
+  }
+  return [...m.values()];
+}
+function sumPago(ts) { const o = {}; for (const p of PAGO) o[p] = 0; for (const t of ts) o[t.pago] = (o[t.pago] || 0) + t.total; return o; }
+function corteLocal() {
+  const fecha = $('ctFecha').value || today(), vend = $('ctVend').value;
+  const rows = ventas.filter(v => v.Fecha === fecha && (!vend || v.Vendedora === vend));
+  const ts = ticketsDe(rows);
+  const pago = sumPago(ts);
+  const total = ts.reduce((a, t) => a + t.total, 0), pz = ts.reduce((a, t) => a + t.pz, 0);
+  const f = fondos[fecha] || {};
+  const fondo = +f.fondo || 0, conteo = f.conteo === '' || f.conteo == null ? null : +f.conteo;
+  const esperado = fondo + (pago.Efectivo || 0);
+  const pend = rows.filter(v => !v.sent).length;
+  return {fecha, vend, ts, pago, total, pz, fondo, conteo, esperado, dif: conteo === null ? null : conteo - esperado, pend};
+}
+function difTxt(d) { if (d === null) return 'Falta contar el efectivo'; if (Math.abs(d) < 0.5) return 'Cuadra exacto'; return d > 0 ? 'Sobran ' + money(d) : 'Faltan ' + money(-d); }
+function corteTexto(c) {
+  const L = [`*Corte de caja · ${cfg.shop || 'Tiendita'}*`, `Fecha: ${fmtF(c.fecha)} · Dispositivo: ${cfg.device || cfg.devId}` + (c.vend ? ` · Vendedora: ${c.vend}` : ''),
+    `Tickets: ${c.ts.length} · Piezas: ${c.pz}`, ...PAGO.map(p => `${p}: ${money(c.pago[p] || 0)}`), `*Total vendido: ${money(c.total)}*`, '',
+    `Fondo inicial: ${money(c.fondo)}`, `Efectivo esperado en caja: ${money(c.esperado)}`, `Efectivo contado: ${c.conteo === null ? '(sin contar)' : money(c.conteo)}`, `*${difTxt(c.dif)}*`];
+  if (c.pend) L.push('', `Ventas sin enviar a la hoja (sin internet): ${c.pend}`);
+  if (c.ts.length) L.push('', 'Tickets: ' + c.ts.map(t => `${tnum(t.ticket)} ${money(t.total)} ${t.pago.slice(0, 3)}`).join(' · '));
+  return L.join('\n');
+}
+function drawCorte() {
+  if (!$('ctFecha').value) $('ctFecha').value = today();
+  const fecha = $('ctFecha').value;
+  const names = [...new Set([...(cat.vendedoras || []), ...ventas.filter(v => v.Fecha === fecha).map(v => v.Vendedora).filter(Boolean)])];
+  const cur = $('ctVend').value;
+  $('ctVend').innerHTML = '<option value="">Todas</option>' + names.map(n => `<option>${esc(n)}</option>`).join('');
+  $('ctVend').value = names.includes(cur) ? cur : '';
+  const c = corteLocal();
+  if (document.activeElement !== $('ctFondo')) $('ctFondo').value = (fondos[fecha] || {}).fondo ?? '';
+  if (document.activeElement !== $('ctConteo')) $('ctConteo').value = (fondos[fecha] || {}).conteo ?? '';
+  $('ctFigs').innerHTML = [['Total vendido', money(c.total)], ['Tickets', c.ts.length], ['Piezas', c.pz]].map(([a, b]) => `<div><b>${esc(b)}</b><span>${a}</span></div>`).join('');
+  $('ctPago').innerHTML = '<tr><th>Forma de pago</th><th>Tickets</th><th>Monto</th></tr>' +
+    PAGO.map(p => `<tr><td>${p}</td><td>${c.ts.filter(t => t.pago === p).length}</td><td>${money(c.pago[p] || 0)}</td></tr>`).join('') +
+    `<tr class="tot"><td>Total</td><td>${c.ts.length}</td><td>${money(c.total)}</td></tr>`;
+  const cu = $('ctCuadre');
+  cu.className = 'cuadre' + (c.dif === null ? '' : Math.abs(c.dif) < 0.5 ? ' ok' : ' bad');
+  cu.innerHTML = `<div class="mut">Efectivo esperado en caja = fondo ${money(c.fondo)} + ventas en efectivo ${money(c.pago.Efectivo || 0)}</div><div class="big">${money(c.esperado)}</div><div style="font-weight:700;margin-top:4px">${esc(difTxt(c.dif))}</div>`;
+  $('ctPend').textContent = c.pend ? `${c.pend} venta(s) de este día todavía no llegan a la hoja. Se envían solas al tener internet; el corte de este teléfono ya las incluye.` : '';
+  const enHoja = hj && hj.fecha === fecha ? new Set(hj.tickets.map(t => t[0])) : null;
+  $('ctList').innerHTML = c.ts.slice().reverse().map(t => {
+    const badge = enHoja ? (enHoja.has(t.ticket) ? '<span class="badge ok">En la hoja</span>' : '<span class="badge wait">No está en la hoja</span>') : (t.sent ? '<span class="badge ok">Enviado</span>' : '<span class="badge wait">Pendiente</span>');
+    return `<li><div><div class="t">${esc(tnum(t.ticket))}${t.hora ? ' · ' + esc(t.hora) : ''} · ${money(t.total)}</div><div class="s">${esc(t.pago)} · ${t.pz} pz · ${esc(t.vend || 'sin vendedora')} · ${esc(t.skus.join(', '))}</div></div><div class="n">${badge}</div></li>`;
+  }).join('') || '<li class="empty">No hay ventas en este teléfono para esa fecha.</li>';
+  $('ctWa').href = 'https://wa.me/?text=' + encodeURIComponent(corteTexto(c));
+  drawHoja();
+}
+function saveFondo() { const f = $('ctFecha').value || today(); fondos[f] = {fondo: $('ctFondo').value, conteo: $('ctConteo').value}; put('fondos', fondos); drawCorte(); }
+$('ctFondo').addEventListener('input', saveFondo);
+$('ctConteo').addEventListener('input', saveFondo);
+$('ctFecha').addEventListener('change', () => { drawCorte(); });
+$('ctVend').addEventListener('change', drawCorte);
+$('ctCopy').onclick = async () => { try { await navigator.clipboard.writeText(corteTexto(corteLocal())); toast('Corte copiado'); } catch (e) { toast('No se pudo copiar'); } };
+
+async function consultarHoja() {
+  if (!cfg.url) return go('ajustes');
+  const fecha = $('ctFecha').value || today();
+  $('hjMsg').textContent = 'Consultando…';
+  try {
+    const u = cfg.url + (cfg.url.includes('?') ? '&' : '?') + 'accion=corte&fecha=' + fecha + '&token=' + encodeURIComponent(cfg.token);
+    const j = await (await fetch(u)).json();
+    if (!j.ok) throw new Error(j.error || 'Error');
+    hj = {fecha, tickets: j.tickets || [], at: new Date()};
+    $('hjMsg').textContent = '';
+  } catch (e) { hj = null; $('hjMsg').textContent = navigator.onLine ? 'No se pudo consultar: ' + (e.message || e) : 'Sin internet: la consulta a la hoja necesita conexión.'; }
+  drawCorte();
+}
+function hojaResumen() {
+  const vend = $('ctVend').value;
+  // tickets: [ticket, dispositivo, vendedora, pago, piezas, total, recibido]
+  const ts = hj.tickets.filter(t => !vend || t[2] === vend);
+  const disp = new Map();
+  for (const t of ts) { const d = t[1] || 'Sin dispositivo'; const x = disp.get(d) || {n: 0, total: 0, efe: 0, ult: ''}; x.n++; x.total += t[5]; if (t[3] === 'Efectivo') x.efe += t[5]; if (t[6] > x.ult) x.ult = t[6]; disp.set(d, x); }
+  const pago = {}; for (const p of PAGO) pago[p] = 0; for (const t of ts) pago[t[3] || 'Sin forma'] = (pago[t[3] || 'Sin forma'] || 0) + t[5];
+  return {ts, disp, pago, total: ts.reduce((a, t) => a + t[5], 0), pz: ts.reduce((a, t) => a + t[4], 0), ult: ts.reduce((a, t) => t[6] > a ? t[6] : a, '')};
+}
+function hojaTexto(r) {
+  const L = [`*Según la hoja · ${fmtF(hj.fecha)}*` + ($('ctVend').value ? ` · ${$('ctVend').value}` : ''), `Consultado: ${hj.at.toTimeString().slice(0, 5)} · Última venta recibida: ${r.ult || '—'}`,
+    `Tickets: ${r.ts.length} · Piezas: ${r.pz}`, ...PAGO.map(p => `${p}: ${money(r.pago[p] || 0)}`), `*Total en la hoja: ${money(r.total)}*`];
+  for (const [d, x] of r.disp) L.push(`${d}: ${x.n} tickets · ${money(x.total)} (efectivo ${money(x.efe)})`);
+  if (r.ts.length) L.push('', 'Tickets: ' + r.ts.map(t => `${tnum(t[0])} ${money(t[5])}`).join(' · '));
+  return L.join('\n');
+}
+function drawHoja() {
+  const o = $('hjOut');
+  if (!hj || hj.fecha !== ($('ctFecha').value || today())) { o.innerHTML = ''; return; }
+  const r = hojaResumen();
+  const mine = ticketsDe(ventas.filter(v => v.Fecha === hj.fecha && (!$('ctVend').value || v.Vendedora === $('ctVend').value)));
+  const enHoja = new Set(r.ts.map(t => t[0]));
+  const faltan = mine.filter(t => !enHoja.has(t.ticket));
+  o.innerHTML = `<div class="figs"><div><b>${money(r.total)}</b><span>Total en la hoja</span></div><div><b>${r.ts.length}</b><span>Tickets</span></div><div><b>${esc(r.ult || '—')}</b><span>Última recibida</span></div></div>
+    <table class="tbl"><tr><th>Forma de pago</th><th>Monto</th></tr>${PAGO.map(p => `<tr><td>${p}</td><td>${money(r.pago[p] || 0)}</td></tr>`).join('')}<tr class="tot"><td>Total</td><td>${money(r.total)}</td></tr></table>
+    <div class="scrollx" style="margin-top:12px"><table class="tbl"><tr><th>Dispositivo</th><th>Tickets</th><th>Total</th><th>Efectivo</th><th>Última</th></tr>
+    ${[...r.disp].map(([d, x]) => `<tr><td>${esc(d)}</td><td>${x.n}</td><td>${money(x.total)}</td><td>${money(x.efe)}</td><td>${esc(x.ult)}</td></tr>`).join('') || '<tr><td colspan="5">No hay ventas en la hoja para esa fecha.</td></tr>'}</table></div>
+    ${mine.length ? `<p class="${faltan.length ? 'warnline' : 'hint'}">${faltan.length ? 'De este teléfono faltan en la hoja: ' + esc(faltan.map(t => tnum(t.ticket)).join(', ')) + '. Se enviarán solos al tener internet.' : 'Todos los tickets de este teléfono ya están en la hoja.'}</p>` : ''}
+    <div class="actions"><a class="btn main" href="https://wa.me/?text=${encodeURIComponent(hojaTexto(r))}" target="_blank" rel="noopener">Enviar por WhatsApp</a><button class="btn" type="button" id="hjCopy">Copiar texto</button></div>`;
+  $('hjCopy').onclick = async () => { try { await navigator.clipboard.writeText(hojaTexto(r)); toast('Copiado'); } catch (e) { toast('No se pudo copiar'); } };
+}
+$('hjBtn').onclick = consultarHoja;
 
 /* =========================================================== ALTA */
 const dv = f => draft[f] === OTHER ? (draft['o' + f] || '').trim() : (draft[f] || '');
@@ -365,7 +486,6 @@ async function sync(force) {
   if (syncing || !cfg.url || !cfg.token) { drawSync(); return; }
   if (!navigator.onLine && !force) { drawSync(); return; }
   syncing = true; drawSync();
-  let sent = false;
   try {
     while (out.length) {
       const batch = out.slice(0, 300);
@@ -376,13 +496,13 @@ async function sync(force) {
       const ok = new Set(j.aceptados || []);
       if (!ok.size) throw new Error('La hoja no aceptó los registros');
       out = out.filter(x => !ok.has(x.row.ID));
-      for (const v of ventas) if (ok.has(v.ID)) v.sent = true;
-      for (const a of altas) if (ok.has(a.ID)) a.sent = true;
+      const now = Date.now();
+      for (const v of ventas) if (ok.has(v.ID)) { v.sent = true; v.sentAt = now; }
+      for (const a of altas) if (ok.has(a.ID)) { a.sent = true; a.sentAt = now; }
       put('out', out); put('ventas', ventas); put('altas', altas);
-      sent = true;
     }
-    const age = cat.hora ? Date.now() - new Date(cat.hora).getTime() : Infinity;
-    if (force || sent || age > 10 * 60e3) await fetchCat();
+    const age = cat.fetchedAt ? Date.now() - cat.fetchedAt : Infinity;
+    if (force === true || age > 10 * 60e3) await fetchCat(); // el catálogo solo se baja si tiene más de 10 min o si se pide
     st.last = new Date().toISOString(); st.err = ''; put('st', st);
   } catch (e) {
     st.err = navigator.onLine ? String(e.message || e) : 'Sin internet'; put('st', st);
@@ -394,7 +514,7 @@ async function fetchCat() {
   const u = cfg.url + (cfg.url.includes('?') ? '&' : '?') + 'accion=catalogo&token=' + encodeURIComponent(cfg.token);
   const res = await fetch(u); const j = await res.json();
   if (!j.ok) throw new Error(j.error || 'No se pudo leer el catálogo');
-  cat = {productos: j.productos || [], vendedoras: j.vendedoras || [], consignatarios: j.consignatarios || [], maxFolio: j.maxFolio || {}, hora: j.hora || new Date().toISOString()};
+  cat = {productos: j.productos || [], vendedoras: j.vendedoras || [], consignatarios: j.consignatarios || [], maxFolio: j.maxFolio || {}, hora: j.hora || new Date().toISOString(), fetchedAt: Date.now()};
   put('cat', cat);
   const base = Math.floor((WHO[cfg.who] || cfg.next) / 10000) * 10000;
   const mx = Number(cat.maxFolio[base] || 0);
@@ -412,13 +532,13 @@ function drawSync() {
 function drawEnvios() {
   const nv = out.filter(x => x.kind === 'ventas').length, np = out.length - nv;
   const last = st.last ? new Date(st.last).toLocaleString('es-MX', {dateStyle: 'short', timeStyle: 'short'}) : 'nunca';
-  const ch = cat.hora ? new Date(cat.hora).toLocaleString('es-MX', {dateStyle: 'short', timeStyle: 'short'}) : 'nunca';
+  const ch = cat.fetchedAt ? new Date(cat.fetchedAt).toLocaleString('es-MX', {dateStyle: 'short', timeStyle: 'short'}) : 'nunca';
   $('sendFigs').innerHTML = [['Ventas por enviar', nv], ['Productos por enviar', np], ['Último envío', last], ['Catálogo del', ch], ['Productos en catálogo', index.size]]
     .map(([a, b]) => `<div><b>${esc(b)}</b><span>${a}</span></div>`).join('');
   $('sendMsg').textContent = !cfg.url ? 'Configura la conexión en Ajustes.' : st.err ? 'Último intento: ' + st.err : (navigator.onLine ? 'Conectado.' : 'Sin internet: se enviará solo cuando vuelva la señal.');
   $('outList').innerHTML = out.slice(-80).reverse().map(x => `<li><div><div class="t">${x.kind === 'ventas' ? 'Venta' : 'Producto'} · ${esc(x.row.SKU)}</div><div class="s">${esc(x.kind === 'ventas' ? x.row.Ticket + ' · ' + x.row.Piezas + ' pz · ' + money(x.row['Precio cobrado']) : x.row['Descripción'])}</div></div><div class="n">${esc(x.row.Fecha || x.row['Fecha alta'])}</div></li>`).join('') || '<li class="empty">Nada pendiente.</li>';
 }
-$('sendNow').onclick = () => { if (!cfg.url) return go('ajustes'); sync(true); };
+$('sendNow').onclick = () => { if (!cfg.url) return go('ajustes'); sync('send'); };
 $('catNow').onclick = () => { if (!cfg.url) return go('ajustes'); sync(true); };
 $('syncBtn').onclick = () => go('envios');
 $('csvPend').onclick = () => {
