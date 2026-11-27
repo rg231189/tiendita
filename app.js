@@ -169,7 +169,7 @@ $('cobrar').onclick = () => {
   const tot = cart.reduce((a, l) => a + lineTotal(l), 0);
   ask('¿Cobrar ' + money(tot) + '?', `<p>${cart.length} producto(s) · ${esc(pago)} · ${esc($('vend').value)}</p>`, () => { cobrar(); }, 'Cobrar');
 };
-$('vaciar').onclick = () => { if (!cart.length) return; ask('¿Vaciar el ticket?', '<p>Se quitan todos los productos del ticket actual.</p>', () => { cart = []; saveCart(); drawVenta(); }); };
+$('vaciar').onclick = () => { if (!cart.length) return toast('El ticket ya está vacío'); cart = []; $('paid').value = ''; saveCart(); drawVenta(); toast('Ticket vaciado'); };
 $('paid').addEventListener('input', drawVenta);
 $('vend').addEventListener('change', e => { cfg.vend = e.target.value; put('cfg', cfg); });
 $('skuAdd').onclick = () => {

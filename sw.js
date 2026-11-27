@@ -1,6 +1,6 @@
 // Guarda la app en el teléfono para que abra sin internet.
 // Al cambiar cualquier archivo de la app, sube el número de versión.
-const VERSION = 'tiendita-v1';
+const VERSION = 'tiendita-v2';
 const FILES = ['./', 'index.html', 'app.js', 'catalogo.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png',
   'vendor/JsBarcode.all.min.js', 'vendor/html5-qrcode.min.js'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(VERSION).then(c => c.addAll(FILES)).then(() => self.skipWaiting())); });
