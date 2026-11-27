@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#c8185f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Tiendita">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" href="icon-192.png">
+<title>Tiendita</title>
+<style>
+/* VOICE everyday shop tool, used standing at the counter or on a bus
+   IDEA the hang tag tied to each garment: capture writes the tag, the sale scans it
+   PICTURE the live hang tag in Alta; the running ticket total in Vender
+   COLOUR white ground, fuchsia #c8185f, ink #1c1720, lime #b6e34a for done/synced; night #17121a
+   TYPE system UI (works offline, no web fonts), heavy weight for figures
+   LAYOUT phone: one column, bottom tab bar; laptop: top tabs, two columns where useful */
+:root{color-scheme:light dark;--bg:light-dark(#ffffff,#17121a);--ink:light-dark(#1c1720,#f4eef6);--mut:light-dark(#6b6270,#b3a8b8);--line:light-dark(#e6dfe8,#352c3a);--panel:light-dark(#faf6fa,#211a25);--tag:#c8185f;--tag2:light-dark(#9e0f49,#e04a86);--ok:#b6e34a;--warn:light-dark(#b3261e,#ff8a80);--amber:light-dark(#8a5a00,#ffcf66)}
+*{box-sizing:border-box;min-width:0}
+[hidden]{display:none!important}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--ink);font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;overflow-x:clip}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:max(10px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) 10px max(16px,env(safe-area-inset-left));border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:10}
+.brand{font-weight:800;font-size:20px;letter-spacing:-.01em}
+.sync{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--mut);background:none;border:0;cursor:pointer;min-height:40px;padding:0}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--mut);flex:none}
+.dot.ok{background:#5aa500}.dot.wait{background:#e0a000}.dot.err{background:#d93025}
+nav.tabs{display:flex;gap:4px}
+nav.tabs button{flex:1;white-space:nowrap;min-height:48px;border:0;background:none;color:var(--mut);font:600 14px inherit;font-family:inherit;cursor:pointer;border-radius:10px;padding:6px 10px}
+nav.tabs button[aria-current=page]{color:var(--tag2);background:color-mix(in srgb,var(--tag) 10%,transparent)}
+nav.tabs button .n{display:inline-block;min-width:20px;padding:0 6px;border-radius:10px;background:var(--tag);color:#fff;font-size:12px;margin-left:4px}
+@media(max-width:799px){nav.tabs{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--line);padding:4px max(6px,env(safe-area-inset-right)) max(4px,env(safe-area-inset-bottom)) max(6px,env(safe-area-inset-left));z-index:10}main{padding-bottom:96px!important}.top nav{display:none}}
+@media(min-width:800px){nav.bottomnav{display:none}}
+main{max-width:1180px;margin:0 auto;padding:16px max(16px,env(safe-area-inset-right)) 32px max(16px,env(safe-area-inset-left))}
+h1{font-size:clamp(26px,4vw,34px);line-height:1.1;letter-spacing:-.02em;margin:4px 0 12px;font-weight:800}
+h2{font-size:17px;margin:0 0 8px;font-weight:700}
+h2 small,.mut{font-weight:400;color:var(--mut);font-size:14px}
+.cols{display:grid;grid-template-columns:minmax(0,1fr);gap:20px}
+@media(min-width:900px){.cols{grid-template-columns:minmax(0,1.2fr) minmax(0,1fr)}.stick{position:sticky;top:76px;align-self:start}}
+.card{background:var(--panel);border-radius:16px;padding:14px}
+.step{border-top:1px solid var(--line);padding:14px 0 6px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chips.scrolly{max-height:212px;overflow-y:auto;padding:2px}
+.chip{min-height:44px;padding:8px 14px;border-radius:22px;border:1.5px solid var(--line);background:var(--bg);color:var(--ink);font:500 16px inherit;font-family:inherit;cursor:pointer}
+.chip[aria-pressed=true]{background:var(--tag);border-color:var(--tag);color:#fff}
+.chip.big{font-weight:700}
+.chip.other{border-style:dashed}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--ok);outline-offset:2px}
+input,select{font:16px inherit;font-family:inherit;color:var(--ink);background:var(--bg);border:1.5px solid var(--line);border-radius:10px;min-height:44px;padding:8px 12px;width:100%}
+label{display:block;font-size:14px;color:var(--mut);margin-bottom:4px}
+.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(9em,1fr));gap:12px}
+.btn{min-height:48px;padding:10px 18px;border-radius:12px;font:700 16px inherit;font-family:inherit;cursor:pointer;background:var(--panel);color:var(--ink);border:1.5px solid var(--line)}
+.btn.main{background:var(--tag);color:#fff;border-color:var(--tag)}
+.btn.main:disabled{opacity:.45;cursor:not-allowed}
+.btn.ghost{background:transparent}
+.btn.small{min-height:36px;padding:4px 12px;font-size:14px;border-radius:10px}
+.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}
+.stepper{display:flex;gap:6px}.stepper button{width:44px;flex:none;padding:0}.stepper input{text-align:center}
+.hint{font-size:14px;color:var(--mut);margin:6px 0 0}
+.err{color:var(--warn);font-size:14px;margin:8px 0 0;min-height:1.2em}
+.toggle{display:flex;align-items:center;gap:10px;min-height:44px;cursor:pointer;font-weight:500}
+.toggle input{width:22px;height:22px;min-height:0;accent-color:var(--tag)}
+/* tag */
+.tagbox{display:flex;justify-content:center;padding:14px 8px;background:var(--panel);border-radius:18px}
+.tag{position:relative;width:min(100%,330px);background:var(--tag);color:#fff;padding:40px 20px 18px;clip-path:polygon(18% 0,82% 0,100% 12%,100% 100%,0 100%,0 12%);border-radius:0 0 18px 18px}
+.tag::before{content:"";position:absolute;top:14px;left:50%;width:14px;height:14px;margin-left:-7px;border-radius:50%;background:var(--panel)}
+.tag .sku{font-weight:800;font-size:clamp(28px,8vw,38px);line-height:1;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tag .desc{font-size:16px;margin-top:8px;line-height:1.35;overflow-wrap:anywhere}
+.tag .meta{display:flex;justify-content:space-between;align-items:flex-end;gap:10px;margin-top:10px;padding-top:10px;border-top:1.5px dashed rgba(255,255,255,.55)}
+.tag .size{font-size:13px}.tag .size b{display:block;font-size:22px}
+.tag .price{font-weight:800;font-size:28px;white-space:nowrap}
+.tag .cons{position:absolute;top:40px;right:-34px;transform:rotate(38deg);background:var(--ok);color:#1c1720;font-size:12px;font-weight:700;padding:3px 40px}
+@media(max-width:899px){#v-alta .tagbox{position:sticky;top:61px;z-index:5;margin:0 -16px;border-radius:0 0 16px 16px;padding:8px 16px}#v-alta .tag{padding:30px 16px 12px}#v-alta .tag::before{top:9px}#v-alta .tag .desc{font-size:14px;margin-top:4px}#v-alta .tag .meta{margin-top:6px;padding-top:6px}}
+/* venta */
+.scan{position:relative;border-radius:16px;overflow:hidden;background:#000;min-height:0}
+#reader{width:100%}
+#reader video{width:100%!important;display:block}
+.skuin{display:flex;gap:8px}.skuin input{font-size:18px}
+.sugg{list-style:none;margin:6px 0 0;padding:0;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.sugg li button{width:100%;text-align:left;background:var(--bg);color:var(--ink);border:0;border-bottom:1px solid var(--line);padding:10px 12px;min-height:44px;font:15px inherit;font-family:inherit;cursor:pointer;display:flex;justify-content:space-between;gap:10px}
+.sugg li:last-child button{border-bottom:0}
+.lines{list-style:none;margin:0;padding:0}
+.lines li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;padding:12px 0;border-bottom:1px solid var(--line)}
+.lines .t{font-weight:700}.lines .s{font-size:14px;color:var(--mut)}
+.lines .amt{text-align:right;font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums}
+.lines .ctl{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:8px;align-items:end}.lines .ctl>div{flex:1 1 6.5em}.lines .ctl>.stepper{flex:0 0 auto}.lines .ctl .stepper input{width:56px;flex:none}
+.lines .ctl label{font-size:12px;margin:0}
+.lines .ctl input{min-height:40px;padding:6px 8px}
+.warnline{color:var(--amber);font-size:13px;font-weight:600}
+.total{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin:12px 0}
+.total b{font-size:clamp(34px,8vw,48px);font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums;white-space:nowrap}
+.figs{display:grid;grid-template-columns:repeat(auto-fit,minmax(7.5em,1fr));gap:8px;margin:8px 0 12px}
+.figs div{background:var(--panel);border-radius:12px;padding:8px 12px}
+.figs b{display:block;font-size:20px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.figs span{font-size:13px;color:var(--mut)}
+.list{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
+.list li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 12px;padding:10px 0;border-bottom:1px solid var(--line)}
+.list .t{font-weight:700;font-variant-numeric:tabular-nums}
+.list .s{font-size:14px;color:var(--mut)}
+.list .n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.list .ops{grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap}
+.badge{font-size:12px;font-weight:700;padding:2px 8px;border-radius:10px;white-space:nowrap}
+.badge.ok{background:var(--ok);color:#1c1720}.badge.wait{background:#ffe08a;color:#5a3d00}
+.empty{color:var(--mut);padding:14px 0}
+.lblprev{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}
+.lbl{width:50mm;height:25mm;background:#fff;color:#000;border:1px solid #ccc;padding:1.2mm 2mm;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden;font-family:Arial,sans-serif}
+.lbl .l1{display:flex;justify-content:space-between;gap:2mm;font-size:7pt;line-height:1.1}
+.lbl .l1 b{font-size:11pt;white-space:nowrap}
+.lbl .d{font-size:6.5pt;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lbl svg{width:100%;height:11mm;display:block}
+.dlg{position:fixed;inset:0;background:rgba(20,10,20,.5);display:none;align-items:center;justify-content:center;padding:16px;z-index:40}
+.dlg.on{display:flex}
+.dlg>div{background:var(--bg);border-radius:16px;padding:20px;max-width:440px;width:100%}
+.toast{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:12px;font-weight:500;opacity:0;transition:opacity .2s;pointer-events:none;z-index:50;max-width:90vw;text-align:center}
+.toast.on{opacity:1}
+@media(prefers-reduced-motion:reduce){.toast{transition:none}}
+.banner{background:color-mix(in srgb,var(--tag) 10%,var(--bg));border:1px solid color-mix(in srgb,var(--tag) 35%,transparent);border-radius:12px;padding:10px 14px;font-size:14px;margin-bottom:12px}
+#print{display:none}
+@media print{
+  body>*:not(#print){display:none!important}
+  #print{display:block}
+  #print.thermal .lbl{border:0;page-break-after:always;break-after:page;width:50mm;height:25mm}
+  #print.sheet{display:grid;grid-template-columns:repeat(3,2.625in);grid-auto-rows:1in;column-gap:.125in}
+  #print.sheet .lbl{width:2.625in;height:1in;border:0;padding:.06in .12in}
+  #print.sheet .lbl svg{height:.45in}
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand">Tiendita</div>
+  <nav class="tabs" aria-label="Secciones"></nav>
+  <button class="sync" id="syncBtn" type="button" title="Ver envíos"><span class="dot" id="syncDot"></span><span id="syncTxt">—</span></button>
+</header>
+
+<main>
+  <div class="banner" id="setupBanner" hidden>Falta conectar la app con tu hoja de Google. Ve a <b>Ajustes</b> y pega la URL y el token, o abre el enlace de configuración que te mandaron.</div>
+  <div class="banner" id="installBanner" hidden>Para que funcione sin internet, instálala: en iPhone toca <b>Compartir → Agregar a inicio</b>; en Android, menú <b>⋮ → Instalar app</b>.</div>
+
+  <!-- VENDER -->
+  <section id="v-vender" data-view="vender">
+    <div class="cols">
+      <div>
+        <h1>Vender</h1>
+        <div class="scan" id="scanBox" hidden><div id="reader"></div></div>
+        <div class="actions" style="margin-top:0;margin-bottom:12px">
+          <button class="btn main" type="button" id="camBtn">Escanear con cámara</button>
+        </div>
+        <div class="skuin">
+          <input id="skuIn" placeholder="SKU o descripción" autocomplete="off" autocapitalize="characters" enterkeyhint="go" aria-label="SKU o descripción">
+          <button class="btn" type="button" id="skuAdd">Agregar</button>
+        </div>
+        <ul class="sugg" id="sugg" hidden></ul>
+        <h2 style="margin-top:18px">Ticket actual</h2>
+        <ul class="lines" id="cart"></ul>
+      </div>
+      <div class="stick">
+        <div class="card">
+          <div class="total"><span>Total</span><b id="cartTotal">$0</b></div>
+          <div class="row">
+            <div><label for="vend">Vendedora</label><select id="vend"></select></div>
+            <div><label for="paid">Pagó con ($)</label><input id="paid" type="number" inputmode="decimal" placeholder="Opcional"></div>
+          </div>
+          <p class="hint" id="change"></p>
+          <div style="margin-top:10px"><label>Forma de pago</label><div class="chips" id="pago"></div></div>
+          <div class="actions"><button class="btn main" type="button" id="cobrar" style="flex:1">Cobrar</button><button class="btn ghost" type="button" id="vaciar">Vaciar</button></div>
+        </div>
+        <h2 style="margin-top:20px">Ventas de hoy</h2>
+        <div class="figs" id="hoyFigs"></div>
+        <ul class="list" id="hoyList"></ul>
+        <div class="actions"><button class="btn" type="button" id="csvHoy">Exportar CSV de hoy</button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ALTA -->
+  <section id="v-alta" data-view="alta" hidden>
+    <div class="cols">
+      <div>
+        <h1>Alta de productos</h1>
+        <div class="tagbox"><div class="tag" aria-live="polite">
+          <div class="cons" id="tCons" hidden>Consigna</div>
+          <div class="sku" id="tSku">—</div>
+          <div class="desc" id="tDesc">Elige la clase para empezar</div>
+          <div class="meta"><div class="size">Talla / unidad<b id="tTalla">—</b></div><div class="price" id="tPrice">$—</div></div>
+        </div></div>
+        <form id="f" autocomplete="off">
+          <section class="step"><h2>1. Clase</h2><div class="chips" id="cClase"></div></section>
+          <section class="step"><h2>2. Tipo <small id="nTipo"></small></h2>
+            <input id="qTipo" type="search" placeholder="Buscar tipo…" aria-label="Buscar tipo" style="margin-bottom:8px">
+            <div class="chips scrolly" id="cTipo"><span class="hint">Primero elige la clase.</span></div>
+            <input id="oTipo" placeholder="Escribe el tipo nuevo" hidden aria-label="Tipo nuevo" style="margin-top:8px">
+          </section>
+          <section class="step"><h2>3. Para quién</h2><div class="chips" id="cSexo"></div></section>
+          <section class="step"><h2>4. Talla o unidad</h2>
+            <div class="chips scrolly" id="cTalla"><span class="hint">Primero elige la clase.</span></div>
+            <input id="oTalla" placeholder="Escribe la talla o unidad" hidden aria-label="Talla nueva" style="margin-top:8px">
+          </section>
+          <section class="step"><h2>5. Color</h2>
+            <input id="qColor" type="search" placeholder="Buscar color…" aria-label="Buscar color" style="margin-bottom:8px">
+            <div class="chips scrolly" id="cColor"></div>
+            <input id="oColor" placeholder="Escribe el color" hidden aria-label="Color nuevo" style="margin-top:8px">
+          </section>
+          <section class="step"><h2>6. Descripción <small>opcional</small></h2><input id="desc" maxlength="80" placeholder="Ej. con bolsillos, estampado de flores"></section>
+          <section class="step"><h2>7. Dónde se compró</h2>
+            <label class="toggle"><input type="checkbox" id="isCons"> Es mercancía en consigna</label>
+            <div class="chips" id="cOrigen"></div>
+            <div class="chips" id="cCons" hidden></div>
+          </section>
+          <section class="step"><h2>8. Cantidad y precios</h2>
+            <div class="row">
+              <div><label for="fecha">Fecha de compra</label><input id="fecha" type="date"></div>
+              <div><label for="pzas">Piezas</label><div class="stepper"><button type="button" class="btn" id="pMinus" aria-label="Menos">−</button><input id="pzas" type="number" inputmode="numeric" min="1"><button type="button" class="btn" id="pPlus" aria-label="Más">+</button></div></div>
+              <div><label for="costo">Costo por pieza ($)</label><input id="costo" type="number" inputmode="decimal" min="0" step="0.5" placeholder="0"></div>
+              <div><label for="precio">Precio de venta ($)</label><input id="precio" type="number" inputmode="decimal" min="0" step="1" placeholder="0"></div>
+            </div>
+            <p class="hint" id="pHint"></p>
+          </section>
+          <p class="err" id="err" role="alert"></p>
+          <div class="actions">
+            <button class="btn main" type="submit" id="save">Guardar</button>
+            <button class="btn" type="button" id="saveSame">Guardar y capturar otra talla o color</button>
+            <button class="btn ghost" type="button" id="clear">Limpiar</button>
+          </div>
+        </form>
+      </div>
+      <div class="stick">
+        <h2>Capturados en este teléfono</h2>
+        <div class="figs" id="altaFigs"></div>
+        <ul class="list" id="altaList"></ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ETIQUETAS -->
+  <section id="v-etiq" data-view="etiquetas" hidden>
+    <h1>Etiquetas</h1>
+    <div class="cols">
+      <div>
+        <p class="mut" style="margin-top:0">Los productos nuevos entran aquí solos, una etiqueta por pieza. Para reimprimir, busca el SKU.</p>
+        <div class="skuin"><input id="lblIn" placeholder="SKU o descripción para reimprimir" autocomplete="off" aria-label="Buscar para reimprimir"><button class="btn" type="button" id="lblAdd">Agregar</button></div>
+        <ul class="sugg" id="lblSugg" hidden></ul>
+        <ul class="list" id="lblList" style="margin-top:14px"></ul>
+      </div>
+      <div class="stick card">
+        <label for="lblFmt">Formato</label>
+        <select id="lblFmt">
+          <option value="thermal">Impresora térmica, etiqueta 50 × 25 mm</option>
+          <option value="sheet">Hoja carta, 30 etiquetas (tipo Avery 5160)</option>
+        </select>
+        <div class="figs" id="lblFigs" style="margin-top:12px"></div>
+        <div class="actions"><button class="btn main" type="button" id="printBtn">Imprimir</button><button class="btn ghost" type="button" id="lblClear">Vaciar lista</button></div>
+        <p class="hint">Vista previa de la primera etiqueta:</p>
+        <div class="lblprev" id="lblPrev"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ENVÍOS -->
+  <section id="v-envios" data-view="envios" hidden>
+    <h1>Envíos</h1>
+    <div class="figs" id="sendFigs"></div>
+    <p id="sendMsg" class="mut"></p>
+    <div class="actions">
+      <button class="btn main" type="button" id="sendNow">Enviar ahora</button>
+      <button class="btn" type="button" id="catNow">Actualizar catálogo</button>
+      <button class="btn" type="button" id="csvPend">Exportar pendientes a CSV</button>
+    </div>
+    <p class="hint">Sin internet todo se guarda en el teléfono y se envía solo cuando vuelve la señal. Si el teléfono no va a tener señal, exporta el CSV y súbelo en la hoja de Google con el menú Tiendita → Importar CSV. Nunca se duplica: cada registro lleva su ID.</p>
+    <h2 style="margin-top:18px">Pendientes de enviar</h2>
+    <ul class="list" id="outList"></ul>
+  </section>
+
+  <!-- AJUSTES -->
+  <section id="v-ajustes" data-view="ajustes" hidden>
+    <h1>Ajustes</h1>
+    <div class="cols">
+      <div class="card">
+        <h2>Conexión con la hoja de Google</h2>
+        <label for="cfUrl">URL de la app web (termina en /exec)</label><input id="cfUrl" inputmode="url" autocapitalize="off" placeholder="https://script.google.com/macros/s/…/exec">
+        <div class="row" style="margin-top:10px"><div><label for="cfTok">Token</label><input id="cfTok" autocapitalize="off"></div><div><label for="cfDev">Nombre de este dispositivo</label><input id="cfDev" placeholder="Ej. Tienda, iPhone Edith"></div></div>
+        <div class="actions"><button class="btn main" type="button" id="cfSave">Guardar y probar</button><button class="btn" type="button" id="cfLink">Copiar enlace de configuración</button></div>
+        <p class="hint" id="cfMsg"></p>
+      </div>
+      <div class="card">
+        <h2>Quién usa este teléfono</h2>
+        <div class="row"><div><label for="cfWho">Capturista (alta de productos)</label><select id="cfWho"></select></div><div><label for="cfFolio">Siguiente folio</label><input id="cfFolio" type="number" inputmode="numeric"></div></div>
+        <p class="hint">Cada capturista tiene su rango de folios para que nunca se repita un SKU: Edith desde 20001, Vicente desde 30001, Raúl desde 40001.</p>
+        <label for="cfShop" style="margin-top:10px">Nombre en la etiqueta</label><input id="cfShop" maxlength="28">
+      </div>
+    </div>
+  </section>
+</main>
+
+<nav class="tabs bottomnav" aria-label="Secciones"></nav>
+<div id="print"></div>
+<div class="dlg" id="dlg" role="dialog" aria-modal="true" aria-labelledby="dlgT"><div>
+  <h2 id="dlgT" style="font-size:20px"></h2><div id="dlgP" style="margin:0 0 12px"></div>
+  <div class="actions"><button class="btn main" id="dlgOk" type="button">Sí</button><button class="btn" id="dlgNo" type="button">Cancelar</button></div>
+</div></div>
+<div class="toast" id="toast" role="status"></div>
+<script src="vendor/JsBarcode.all.min.js"></script>
+<script src="vendor/html5-qrcode.min.js"></script>
+<script src="catalogo.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
